@@ -1,5 +1,6 @@
 #!/usr/bin/env python3 -u
 from codecs import decode
+from bushloop import BushLoop
 import subprocess
 import traceback
 import argparse
@@ -11,13 +12,6 @@ import fcntl
 import sys
 import os
 
-# TODO: add configuration file support
-# TODO: add refresh on SIGHUP
-# TODO: make it modular and reusable
-# TODO: add pluggable logic of data processing
-# TODO: limit number of connection from cmdline
-# TODO: make something sensible with output bufferization
-# TODO: make a wrapper compatible with old pythons
 
 EPILOG = """Examples:
 - Execute cat and ban substring 'shit' encoded in base64:
@@ -31,63 +25,6 @@ EPILOG = """Examples:
 TASKS = []
 # Or logging.getLogger(sys.argv[0]) every time? Nah, fuck it
 logger = None
-
-loop_class = type(asyncio.get_event_loop())
-
-
-class BushLoop(loop_class):
-    # Patching event loop class
-    def sock_recv_into(self, sock, buffer, n):
-        if sock.gettimeout() != 0:
-            raise ValueError("the socket must be non-blocking")
-
-        fut = self.create_future()
-        self._sock_recv_into(fut, False, sock, buffer, n)
-
-        return fut
-
-    def _sock_recv_into(self, fut, registered, sock, buffer, n):
-        fd = sock.fileno()
-
-        if registered:
-            self.remove_reader(fd)
-
-        if fut.cancelled():
-            return
-        try:
-            nbytes = sock.recv_into(buffer, n)
-        except (BlockingIOError, InterruptedError):
-            self.add_reader(fd, self._sock_recv_into, fut, True, sock, buffer, n)
-        except Exception as exc:
-            fut.set_exception(exc)
-        else:
-            fut.set_result(nbytes)
-
-    def fileio_readinto(self, fileio, buffer, n):
-        fut = self.create_future()
-        self._fileio_readinto(fut, False, fileio, buffer, n)
-
-        return fut
-
-    def _fileio_readinto(self, fut, registered, fileio, buffer, n):
-        fd = fileio.fileno()
-
-        if registered:
-            self.remove_reader(fd)
-
-        if fut.cancelled():
-            return
-        try:
-            if registered:
-                nbytes = fileio.readinto(buffer)
-            else:
-                raise BlockingIOError
-        except (BlockingIOError, InterruptedError):
-            self.add_reader(fd, self._fileio_readinto, fut, True, fileio, buffer, n)
-        except Exception as exc:
-            fut.set_exception(exc)
-        else:
-            fut.set_result(nbytes)
 
 
 class Wrapper:
