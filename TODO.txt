@@ -1,0 +1,6 @@
+[ ] add configuration file support
+[ ] add refresh on SIGHUP
+[ ] add pluggable logic of data processing
+[ ] limit number of connection from cmdline
+[ ] make something sensible with output bufferization
+[ ] make a wrapper compatible with old pythons (optional)
