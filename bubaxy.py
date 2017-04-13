@@ -175,7 +175,12 @@ class Process:
         try:
             while True:
                 # awaitable can throw an exception
-                nbytes = await self.loop.sock_recv_into(self.io_sock, self.mbuffer_in[-self.chunk_size:], self.chunk_size)
+                try:
+                    nbytes = await self.loop.sock_recv_into(self.io_sock, self.mbuffer_in[-self.chunk_size:], self.chunk_size)
+                except Exception as e:
+                    nbytes = 0
+                    logger.warning(e)
+                    traceback.print_stack()
 
                 # Got nothing, looks like eof
                 if nbytes == 0:
@@ -221,7 +226,12 @@ class Process:
         try:
             while True:
                 # awaitable can throw an exception
-                nbytes = await self.process.read_into(self.mbuffer_out, self.chunk_size)
+                try:
+                    nbytes = await self.process.read_into(self.mbuffer_out, self.chunk_size)
+                except Exception as e:
+                    nbytes = 0
+                    logger.warning(e)
+                    traceback.print_stack()
 
                 # Got nothing, looks like eof
                 if nbytes == 0:
