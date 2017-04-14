@@ -393,7 +393,8 @@ if __name__ == "__main__":
 
     def evaler():
         cmd = sys.stdin.readline()
-        print(eval(cmd))
+        code = compile(cmd, '<input>', 'single')
+        eval(code, globals(), globals())
 
     loop.add_reader(sys.stdin.fileno(), evaler)
 
