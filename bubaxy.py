@@ -278,11 +278,11 @@ class Process:
 async def master_socket_handler(loop, master_socket, chunk_size, max_len_of_pattern, patterns):
     while True:
         sock, _ = await loop.sock_accept(master_socket)
+        
         try:
             process = Process(sock, service_type, target, loop, chunk_size, max_len_of_pattern, patterns)
         except ConnectionRefusedError as e:
-            logger.warning(e)
-            traceback.print_stack()
+            logger.warning("%s: %s", e, target)
             sock.close()
         else:
             TASKS.append(process)
