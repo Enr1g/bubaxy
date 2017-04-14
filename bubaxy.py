@@ -5,9 +5,10 @@ import subprocess
 import traceback
 import argparse
 import asyncio
+import logging
 import select
 import socket
-import logging
+import errno
 import fcntl
 import sys
 import os
@@ -104,7 +105,7 @@ class Wrapper:
             self._sock.shutdown(socket.SHUT_WR)
         except OSError as e:
             # [Errno 57] Socket is not connected
-            if e.errno != 57:
+            if e.errno != errno.ENOTCONN:
                 raise e
 
     def _net_send_stopped(self):
@@ -113,7 +114,7 @@ class Wrapper:
             self._sock.shutdown(socket.SHUT_RD)
         except OSError as e:
             # [Errno 57] Socket is not connected
-            if e.errno != 57:
+            if e.errno != errno.ENOTCONN:
                 raise e
 
     def _net_close(self):
@@ -212,7 +213,7 @@ class Process:
                         self.io_sock.shutdown(socket.SHUT_RD)
                     except OSError as e:
                         # [Errno 57] Socket is not connected
-                        if e.errno != 57:
+                        if e.errno != errno.ENOTCONN:
                             # Don't forget about an old exception
                             logger.warning(exp)
                             traceback.print_stack()
@@ -240,7 +241,7 @@ class Process:
                         self.io_sock.shutdown(socket.SHUT_WR)
                     except OSError as e:
                         # [Errno 57] Socket is not connected
-                        if e.errno != 57:
+                        if e.errno != errno.ENOTCONN:
                             raise e
                     return
 
