@@ -1,17 +1,14 @@
 #!/usr/bin/env python3 -u
-from codecs import decode
+from servicewrapper import NetworkServiceWrapper, ExecutableServiceWrapper
 from bushloop import BushLoop
-import subprocess
+from codecs import decode
 import traceback
 import argparse
 import asyncio
 import logging
-import select
 import socket
 import errno
-import fcntl
 import sys
-import os
 
 
 EPILOG = """Examples:
@@ -23,137 +20,20 @@ EPILOG = """Examples:
 \t./wrapper.py --pattern 'exploit' -b 100 --net 127.0.0.1:8888 -p 31337
 """
 
-TASKS = []
+conns = []
 # Or logging.getLogger(sys.argv[0]) every time? Nah, fuck it
 logger = None
 
 
-class Wrapper:
-    """Wrapper for local / remote processes. All IO operations are non-blocking"""
-
-    def __init__(self, service_type, target, loop):
-
-        self.loop = loop
-
-        if service_type == 'cmd':
-            self._process = subprocess.Popen(
-                target,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                bufsize=0
-            )
-
-            self.write_fno = self._process.stdout.fileno()
-
-            # making it non-blocking
-            flags = fcntl.fcntl(self.write_fno, fcntl.F_GETFL)
-            fcntl.fcntl(self.write_fno, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-            self.read_into = self._cmd_read_into
-            self.write = self._cmd_write
-            self.close = self._cmd_close
-            self.close_in = self._cmd_close_in
-            self.close_out = self._cmd_close_out
-            self.close_in_out = self._cmd_close_in_out
-
-            self.fmt = (self._process.pid, self._process.args)
-
-        elif service_type == 'net':
-            self._sock = socket.socket()
-            self._sock.connect(target)
-            self._sock.setblocking(0)
-
-            self.write_fno = self._sock.fileno()
-            self.read_into = self._net_read_into
-            self.write = self._net_write
-            self.close = self._net_close
-            self.close_in = self._net_close_in
-            self.close_out = self._net_close_out
-            self.close_in_out = self._net_close_in_out
-
-            self.fmt = []
-            self.fmt.extend(self._sock.getsockname())
-            self.fmt.extend(self._sock.getpeername())
-            self.fmt = tuple(self.fmt)
-
-        else:
-            raise Exception("Unknown service type")
-
-    def can_read(self):
-        return select.select([self.write_fno], [], [], 0)[0] != []
-
-    def _cmd_close_in(self):
-        self._process.stdin.close()
-
-    def _cmd_close_out(self):
-        self._process.stdout.close()
-
-    def _cmd_close_in_out(self):
-        self._process.stdin.close()
-        self._process.stdout.close()
-
-    def _cmd_close(self):
-        self._process.terminate()
-
-    async def _cmd_write(self, data):
-        self._process.stdin.write(data)
-        self._process.stdin.flush()
-
-    async def _cmd_read_into(self, memory, chunk_size):
-        nbytes = await self.loop.fileio_readinto(self._process.stdout, memory[:chunk_size], chunk_size)
-
-        return nbytes
-
-    def _net_close_in(self):
-        try:
-            self._sock.shutdown(socket.SHUT_WR)
-        except OSError as e:
-            # [Errno 57] Socket is not connected
-            if e.errno != errno.ENOTCONN:
-                raise e
-
-    def _net_close_out(self):
-        try:
-            self._sock.shutdown(socket.SHUT_RD)
-        except OSError as e:
-            # [Errno 57] Socket is not connected
-            if e.errno != errno.ENOTCONN:
-                raise e
-
-    def _net_close_in_out(self):
-        try:
-            self._sock.shutdown(socket.SHUT_RDWR)
-        except OSError as e:
-            # [Errno 57] Socket is not connected
-            if e.errno != errno.ENOTCONN:
-                raise e
-
-    def _net_close(self):
-        # asyncio surprisingly can fuck you w/o this step
-        self.loop.remove_reader(self.write_fno)
-        self._sock.close()
-
-    async def _net_write(self, data):
-        # TODO: QUESTIONABLE DECISION: Why sendall and not send?
-        await self.loop.sock_sendall(self._sock, data)
-
-    async def _net_read_into(self, memory, chunk_size):
-        nbytes = await self.loop.sock_recv_into(self._sock, memory, chunk_size)
-
-        return nbytes
-
-    def __str__(self):
-        if hasattr(self, "_sock"):
-            return "<type=remote conn=(%s, %d) -> (%s, %d)>" % self.fmt
-        else:
-            return "<type=local [%d|%s]>" % self.fmt
-
-
-class Process:
+class Service:
 
     def __init__(self, io_sock, service_type, target, loop, chunk_size=1024, max_len_of_pattern=100, patterns=None):
-        self.process = Wrapper(service_type, target, loop)
+        if service_type == 'net':
+            self.service = NetworkServiceWrapper(target, loop)
+        elif service_type == 'cmd':
+            self.service = ExecutableServiceWrapper(target)
+        else:
+            raise Exception("Unknown Service Type")
 
         self.chunk_size = chunk_size
         self.max_len_of_pattern = max_len_of_pattern
@@ -176,7 +56,7 @@ class Process:
 
         self.loop.create_task(self.disposer())
 
-        logger.info("%s was spawned" % self.process)
+        logger.info("%s was spawned" % self.service)
 
     async def disposer(self):
         # TODO: QUESTIONABLE DECISION: Is disposal guaranteed?
@@ -206,7 +86,7 @@ class Process:
 
             # Got nothing, looks like eof
             if nbytes == 0:
-                self.process.close_in()
+                self.service.close_in()
                 return
 
             # Processing
@@ -217,10 +97,10 @@ class Process:
                 for pattern in self.patterns:
                     # Actually, not from 0
                     if self.buffer_in.find(pattern, 0, self.chunk_size + self.max_len_of_pattern) > -1:
-                        logger.info('Banned %s from %s' % (pattern, self.process))
+                        logger.info('Banned %s from %s' % (pattern, self.service))
 
                         try:
-                            self.process.close_in_out()
+                            self.service.close_in_out()
                         except Exception as e:
                             logger.warning(e)
                             traceback.print_stack()
@@ -237,12 +117,12 @@ class Process:
 
             # Optimizing logging
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("%s received: %s", self.process,
+                logger.debug("%s received: %s", self.service,
                              self.buffer_in[-self.chunk_size - nbytes: -self.chunk_size])
 
             try:
                 # send or sendall?
-                await self.process.write(self.mbuffer_in[-self.chunk_size - nbytes: -self.chunk_size])
+                await self.service.write(self.mbuffer_in[-self.chunk_size - nbytes: -self.chunk_size])
             except Exception as exp:
                 try:
                     # TODO: QUESTIONABLE DECISION: Why SHUT_RD?
@@ -260,7 +140,7 @@ class Process:
         while True:
             # awaitable can throw an exception
             try:
-                nbytes = await self.process.read_into(self.mbuffer_out, self.chunk_size)
+                nbytes = await self.service.read_into(self.mbuffer_out, self.chunk_size)
             except Exception as e:
                 nbytes = 0
                 logger.warning(e)
@@ -279,22 +159,22 @@ class Process:
 
             # Optimizing logging
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("%s produced: %s", self.process, self.buffer_out[:nbytes])
+                logger.debug("%s produced: %s", self.service, self.buffer_out[:nbytes])
             try:
                 await self.loop.sock_sendall(self.io_sock, self.mbuffer_out[:nbytes])
             except Exception as e:
                 # TODO: QUESTIONABLE DECISION: Can we do something smarter?
                 # we didn't manage to send all data
-                self.process.close_out()
+                self.service.close_out()
 
     def dispose(self):
-        logger.info('%s was disposed' % self.process)
+        logger.info('%s was disposed' % self.service)
 
-        self.process.close()
+        self.service.close()
         
         try:
-            idx = TASKS.index(self)
-            TASKS.pop(idx)
+            idx = conns.index(self)
+            conns.pop(idx)
         except Exception as e:
             logger.warning(e)
             traceback.print_stack()
@@ -307,14 +187,14 @@ class Process:
 async def master_socket_handler(loop, master_socket, chunk_size, max_len_of_pattern, patterns):
     while True:
         sock, _ = await loop.sock_accept(master_socket)
-        
+
         try:
-            process = Process(sock, service_type, target, loop, chunk_size, max_len_of_pattern, patterns)
+            service = Service(sock, service_type, target, loop, chunk_size, max_len_of_pattern, patterns)
         except ConnectionRefusedError as e:
             logger.warning("%s: %s", e, target)
             sock.close()
         else:
-            TASKS.append(process)
+            conns.append(service)
 
 
 if __name__ == "__main__":
