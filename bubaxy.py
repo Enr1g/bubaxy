@@ -53,8 +53,9 @@ class Wrapper:
             self.read_into = self._cmd_read_into
             self.write = self._cmd_write
             self.close = self._cmd_close
-            self.recv_stopped = self._cmd_recv_stopped
-            self.send_stopped = self._cmd_send_stopped
+            self.close_in = self._cmd_close_in
+            self.close_out = self._cmd_close_out
+            self.close_in_out = self._cmd_close_in_out
 
             self.fmt = (self._process.pid, self._process.args)
 
@@ -67,8 +68,9 @@ class Wrapper:
             self.read_into = self._net_read_into
             self.write = self._net_write
             self.close = self._net_close
-            self.recv_stopped = self._net_recv_stopped
-            self.send_stopped = self._net_send_stopped
+            self.close_in = self._net_close_in
+            self.close_out = self._net_close_out
+            self.close_in_out = self._net_close_in_out
 
             self.fmt = []
             self.fmt.extend(self._sock.getsockname())
@@ -81,10 +83,14 @@ class Wrapper:
     def can_read(self):
         return select.select([self.write_fno], [], [], 0)[0] != []
 
-    def _cmd_recv_stopped(self):
+    def _cmd_close_in(self):
         self._process.stdin.close()
 
-    def _cmd_send_stopped(self):
+    def _cmd_close_out(self):
+        self._process.stdout.close()
+
+    def _cmd_close_in_out(self):
+        self._process.stdin.close()
         self._process.stdout.close()
 
     def _cmd_close(self):
@@ -99,19 +105,25 @@ class Wrapper:
 
         return nbytes
 
-    def _net_recv_stopped(self):
+    def _net_close_in(self):
         try:
-            # TODO: QUESTIONABLE DECISION: Why SHUT_WR?
             self._sock.shutdown(socket.SHUT_WR)
         except OSError as e:
             # [Errno 57] Socket is not connected
             if e.errno != errno.ENOTCONN:
                 raise e
 
-    def _net_send_stopped(self):
+    def _net_close_out(self):
         try:
-            # TODO: QUESTIONABLE DECISION: Why SHUT_RD?
             self._sock.shutdown(socket.SHUT_RD)
+        except OSError as e:
+            # [Errno 57] Socket is not connected
+            if e.errno != errno.ENOTCONN:
+                raise e
+
+    def _net_close_in_out(self):
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
         except OSError as e:
             # [Errno 57] Socket is not connected
             if e.errno != errno.ENOTCONN:
@@ -168,95 +180,112 @@ class Process:
 
     async def disposer(self):
         # TODO: QUESTIONABLE DECISION: Is disposal guaranteed?
-        await self.to_service_task
-        await self.from_service_task
+        try:
+            await self.to_service_task
+        except Exception as e:
+            logger.warning(e)
+            traceback.print_stack()
+
+        try:
+            await self.from_service_task
+        except Exception as e:
+            logger.warning(e)
+            traceback.print_stack()
+
         self.dispose()
 
     async def to_service(self):
-        try:
-            while True:
-                # awaitable can throw an exception
-                try:
-                    nbytes = await self.loop.sock_recv_into(self.io_sock, self.mbuffer_in[-self.chunk_size:], self.chunk_size)
-                except Exception as e:
-                    nbytes = 0
-                    logger.warning(e)
-                    traceback.print_stack()
+        while True:
+            # awaitable can throw an exception
+            try:
+                nbytes = await self.loop.sock_recv_into(self.io_sock, self.mbuffer_in[-self.chunk_size:], self.chunk_size)
+            except Exception as e:
+                nbytes = 0
+                logger.warning(e)
+                traceback.print_stack()
 
-                # Got nothing, looks like eof
-                if nbytes == 0:
-                    self.process.recv_stopped()
-                    return
+            # Got nothing, looks like eof
+            if nbytes == 0:
+                self.process.close_in()
+                return
 
-                # Processing
-                self.mbuffer_in[:-nbytes] = self.mbuffer_in[nbytes:]
+            # Processing
+            self.mbuffer_in[:-nbytes] = self.mbuffer_in[nbytes:]
 
-                # Looking for a bad pattern
-                if self.storing and self.patterns:
-                    for pattern in self.patterns:
-                        # Actually, not from 0
-                        if self.buffer_in.find(pattern, 0, self.chunk_size + self.max_len_of_pattern) > -1:
-                            logger.info('Banned %s from %s' % (pattern, self.process))
-                            return
+            # Looking for a bad pattern
+            if self.storing and self.patterns:
+                for pattern in self.patterns:
+                    # Actually, not from 0
+                    if self.buffer_in.find(pattern, 0, self.chunk_size + self.max_len_of_pattern) > -1:
+                        logger.info('Banned %s from %s' % (pattern, self.process))
 
-                # Optimizing logging
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("%s received: %s", self.process,
-                                 self.buffer_in[-self.chunk_size - nbytes: -self.chunk_size])
-
-                try:
-                    # send or sendall?
-                    await self.process.write(self.mbuffer_in[-self.chunk_size - nbytes: -self.chunk_size])
-                except Exception as exp:
-                    try:
-                        # TODO: QUESTIONABLE DECISION: Why SHUT_RD?
-                        self.io_sock.shutdown(socket.SHUT_RD)
-                    except OSError as e:
-                        # [Errno 57] Socket is not connected
-                        if e.errno != errno.ENOTCONN:
-                            # Don't forget about an old exception
-                            logger.warning(exp)
+                        try:
+                            self.process.close_in_out()
+                        except Exception as e:
+                            logger.warning(e)
                             traceback.print_stack()
-                            raise e
-                    raise exp
-        except Exception as e:
-            logger.warning(e)
-            traceback.print_stack()
+
+                        try:
+                            self.io_sock.shutdown(socket.SHUT_RDWR)
+                        except OSError as e:
+                            # [Errno 57] Socket is not connected
+                            if e.errno != errno.ENOTCONN:
+                                logger.warning(e)
+                                traceback.print_stack()
+
+                        return
+
+            # Optimizing logging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("%s received: %s", self.process,
+                             self.buffer_in[-self.chunk_size - nbytes: -self.chunk_size])
+
+            try:
+                # send or sendall?
+                await self.process.write(self.mbuffer_in[-self.chunk_size - nbytes: -self.chunk_size])
+            except Exception as exp:
+                try:
+                    # TODO: QUESTIONABLE DECISION: Why SHUT_RD?
+                    self.io_sock.shutdown(socket.SHUT_RD)
+                except OSError as e:
+                    # [Errno 57] Socket is not connected
+                    if e.errno != errno.ENOTCONN:
+                        # Don't forget about an old exception
+                        logger.warning(exp)
+                        traceback.print_stack()
+                        raise e
+                raise exp
 
     async def from_service(self):
-        try:
-            while True:
-                # awaitable can throw an exception
-                try:
-                    nbytes = await self.process.read_into(self.mbuffer_out, self.chunk_size)
-                except Exception as e:
-                    nbytes = 0
-                    logger.warning(e)
-                    traceback.print_stack()
+        while True:
+            # awaitable can throw an exception
+            try:
+                nbytes = await self.process.read_into(self.mbuffer_out, self.chunk_size)
+            except Exception as e:
+                nbytes = 0
+                logger.warning(e)
+                traceback.print_stack()
 
-                # Got nothing, looks like eof
-                if nbytes == 0:
-                    try:
-                        # TODO: QUESTIONABLE DECISION: Why SHUT_WR?
-                        self.io_sock.shutdown(socket.SHUT_WR)
-                    except OSError as e:
-                        # [Errno 57] Socket is not connected
-                        if e.errno != errno.ENOTCONN:
-                            raise e
-                    return
-
-                # Optimizing logging
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("%s produced: %s", self.process, self.buffer_out[:nbytes])
+            # Got nothing, looks like eof
+            if nbytes == 0:
                 try:
-                    await self.loop.sock_sendall(self.io_sock, self.mbuffer_out[:nbytes])
-                except Exception as e:
-                    # TODO: QUESTIONABLE DECISION: Can we do something more smart?
-                    # we didn't manage to send all data
-                    self.process.send_stopped()
-        except Exception as e:
-            logger.warning(e)
-            traceback.print_stack()
+                    # TODO: QUESTIONABLE DECISION: Why SHUT_WR?
+                    self.io_sock.shutdown(socket.SHUT_WR)
+                except OSError as e:
+                    # [Errno 57] Socket is not connected
+                    if e.errno != errno.ENOTCONN:
+                        raise e
+                return
+
+            # Optimizing logging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("%s produced: %s", self.process, self.buffer_out[:nbytes])
+            try:
+                await self.loop.sock_sendall(self.io_sock, self.mbuffer_out[:nbytes])
+            except Exception as e:
+                # TODO: QUESTIONABLE DECISION: Can we do something smarter?
+                # we didn't manage to send all data
+                self.process.close_out()
 
     def dispose(self):
         logger.info('%s was disposed' % self.process)
