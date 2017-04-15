@@ -8,9 +8,7 @@ bubaxy stands for Bushwhackers Ban Proxy.
 
 ```
 usage: ./bubaxy.py [-h] (--cmd command | --net host:port)
-                   [--pattern PATTERN | -i INPUT] [-s STR_ENCODING]
-                   [-e ENCODING] [-c CHUNK_SIZE] [-m MAX_LEN_OF_PATTERN] -p
-                   PORT [-l LEVEL]
+                   [--patterns PATTERNS] [-c CHUNK_SIZE] -p PORT [-l LEVEL]
 
 IO wrapper for arbitrary executables.
 
@@ -18,27 +16,33 @@ optional arguments:
   -h, --help            show this help message and exit
   --cmd command         A command to execute
   --net host:port       Host and port to connect
-  --pattern PATTERN     Ban a substring
-  -i INPUT, --input INPUT
-                        File with patterns to be banned. Don't forget about transport encodings (e.g. url encoding)!
-  -s STR_ENCODING, --str-encoding STR_ENCODING
-                        Terminal/file/string encoding. Do not touch if in doubt (default set to utf8)
-  -e ENCODING, --encoding ENCODING
-                        Representation encoding: base64, hex, etc (from codecs.decode)
+  --patterns PATTERNS   Path to the file with patterns to ban
   -c CHUNK_SIZE, --chunk-size CHUNK_SIZE
                         Chunk size for socket I/O
-  -m MAX_LEN_OF_PATTERN, --max-len-of-pattern MAX_LEN_OF_PATTERN
-                        Max length of pattern
   -p PORT, --port PORT  Port for wrapper to listen
   -l LEVEL, --level LEVEL
-                        Log level
+                        Log level. DON'T USE DEBUG ON CTF!
+
+Example:
+Wrap ssh on bushwhackers.ru and listen at 31337:
+
+  ./bubaxy.py --patterns patterns.yaml --net bushwhackers.ru:22 -p 31337 --level=DEBUG
 ```
 
-## Examples
+## Ban substrings and regular expressions
 
-* Execute cat and ban substring 'shit' encoded in base64:
-`./wrapper.py --pattern 'c2hpdA==' -e base64 --cmd cat -p 31337`
-* Execute cat and ban substring 'GET / HTTP/0.9' encoded in hex:
-`./wrapper.py --pattern '474554202f20485454502f302e390a' -e hex --cmd cat -p 31337`
-* Wrap network service on port 8888 and manually set input cache size to 100:
-`./wrapper.py --pattern 'exploit' -b 100 --net 127.0.0.1:8888 -p 31337`
+### Configuration file format
+
+*Hint*: use single quote to enclose raw strings in YAML, e.g. `'\n'` will be interpreted as `r"\n"` in python
+
+#### Section `conf`
+
+- `max_len` - maximum length of a pattern to ban. Possible values: `auto`, positive number
+
+#### Section `patterns`
+
+- `plain` - list of plaintext patterns to ban.
+- `python` - list of python literals, e.g. `'\x0c\x0b\x0a'`.
+- `hex` - list of hex encoded patterns, e.g. `'61616161'`.
+- `base64` - list of base64 encoded patterns, e.g. `'QnVzaHdoYWNrZXJz'`
+- `regexp` - list of python regular expressions. Keep in mind, that bad regular expressions, like `(a+)+` can affect a performance dramatically. Also regular expressions have a **limited support** because of bufferization.

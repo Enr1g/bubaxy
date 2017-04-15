@@ -1,7 +1,5 @@
-[ ] add configuration file support
 [ ] add refresh on SIGHUP
 [ ] add pluggable logic of data processing
 [ ] limit number of connection from cmdline
-[ ] separate wrapper class to two subclasses for cmd and net services
 [ ] make something sensible with output bufferization
 [ ] make a wrapper compatible with old pythons (optional)

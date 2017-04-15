@@ -1,0 +1,15 @@
+conf:
+  max_len: "auto" # can be auto or number
+
+patterns:
+    regexp:
+      - "xyzx?yz"
+    plain:
+      - "exploit"
+      - "AAAAAAA"
+    base64:
+      - "QnVzaHdoYWNrZXJz" # Bushwhackers
+    python:
+      - 'EvilExploit\x0a\x0b\x0c'
+    hex:
+      - "456e723167" # hex
