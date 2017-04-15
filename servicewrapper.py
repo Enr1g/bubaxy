@@ -8,8 +8,8 @@ import os
 class ServiceWrapper:
     """Wrapper for local / remote processes. All IO operations are non-blocking"""
 
-    def __init__(self, target):
-        pass
+    def __init__(self, target, loop):
+        self.loop = loop
 
     def close_in(self):
         raise NotImplementedError
@@ -34,7 +34,9 @@ class ServiceWrapper:
 
 
 class ExecutableServiceWrapper(ServiceWrapper):
-    def __init__(self, target):
+    def __init__(self, target, loop):
+        super().__init__(target, loop)
+
         self._process = subprocess.Popen(
             target,
             shell=True,
@@ -79,7 +81,7 @@ class ExecutableServiceWrapper(ServiceWrapper):
 
 class NetworkServiceWrapper(ServiceWrapper):
     def __init__(self, target, loop):
-        self.loop = loop
+        super().__init__(target, loop)
 
         self._sock = socket.socket()
         self._sock.connect(target)

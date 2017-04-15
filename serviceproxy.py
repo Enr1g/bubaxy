@@ -21,7 +21,7 @@ class ServiceProxy:
         if service_type == 'net':
             self.service = NetworkServiceWrapper(target, loop)
         elif service_type == 'cmd':
-            self.service = ExecutableServiceWrapper(target)
+            self.service = ExecutableServiceWrapper(target, loop)
         else:
             raise Exception("Unknown Service Type")
 
