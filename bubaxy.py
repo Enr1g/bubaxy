@@ -13,8 +13,8 @@ Wrap ssh on bushwhackers.ru and listen at 31337:
 \t./bubaxy.py --patterns patterns.yaml --net bushwhackers.ru:22 -p 31337 --level=DEBUG
 """
 
-# Or logging.getLogger(sys.argv[0]) every time? Nah, fuck it
-logger = None
+logger = logging.getLogger(__name__)
+
 
 async def master_socket_handler(loop, master_socket):
     while True:
@@ -25,6 +25,7 @@ async def master_socket_handler(loop, master_socket):
         except ConnectionRefusedError as e:
             logger.warning("%s: %s", e, target)
             sock.close()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -43,23 +44,14 @@ if __name__ == "__main__":
 
     parser.add_argument('-c', '--chunk-size', type=int, required=False, default=1024, help="Chunk size for socket I/O")
     parser.add_argument('-p', '--port', type=int, required=True, help="Port for wrapper to listen")
-    parser.add_argument('-l', '--level', type=str, required=False, help="Log level. DON'T USE DEBUG ON CTF!")
+    parser.add_argument('-l', '--log', type=str, required=False, default="INFO", help="Log level. DON'T USE DEBUG ON CTF!")
 
     args = parser.parse_args()
 
-    logger = logging.getLogger(sys.argv[0])
-    _ = logging.StreamHandler()
-    _.setFormatter(logging.Formatter('[ %(asctime)s ][%(levelname)s]: %(message)s'))
-    logger.addHandler(_)
-
-    try:
-        logger.setLevel(args.level.upper())
-    except:
-        logger.setLevel(logging.INFO)
+    logging.basicConfig(format='[ %(asctime)s ][%(levelname)s]: %(message)s', level=args.log.upper())
 
     if args.net:
-        target = args.net.split(':')
-        assert len(target) == 2
+        target = args.net.split(':', 2)
         target[1] = int(target[1])
         target = tuple(target)
         service_type = 'net'

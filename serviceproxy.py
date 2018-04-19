@@ -5,9 +5,8 @@ import asyncio
 import logging
 import socket
 import errno
-import sys
 
-logger = logging.getLogger(sys.argv[0])
+logger = logging.getLogger(__name__)
 
 
 class ServiceProxy:
@@ -57,9 +56,9 @@ class ServiceProxy:
     @staticmethod
     def update_patterns(filename=None):
         if filename:
-            ServiceProxy.filename = filename
+            ServiceProxy.patterns_filename = filename
 
-        ServiceProxy.patterns = Patterns(ServiceProxy.filename)
+        ServiceProxy.patterns = Patterns(ServiceProxy.patterns_filename)
 
     async def disposer(self):
         # TODO: QUESTIONABLE DECISION: Is disposal guaranteed?

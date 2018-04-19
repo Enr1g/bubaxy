@@ -1,11 +1,10 @@
 import logging
 import codecs
 import yaml
-import sys
 import re
 
 
-logger = logging.getLogger(sys.argv[0])
+logger = logging.getLogger(__name__)
 
 
 class Patterns:
