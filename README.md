@@ -2,7 +2,7 @@
 
 ## Description
 
-bubaxy stands for Bushwhackers Ban Proxy.
+`bubaxy` stands for Bushwhackers Ban Proxy.
 
 ## Usage
 
@@ -46,3 +46,18 @@ Wrap ssh on bushwhackers.ru and listen at 31337:
 - `hex` - list of hex encoded patterns, e.g. `'61616161'`.
 - `base64` - list of base64 encoded patterns, e.g. `'QnVzaHdoYWNrZXJz'`
 - `regexp` - list of python regular expressions. Keep in mind, that bad regular expressions, like `(a+)+` can affect a performance dramatically. Also regular expressions have a **limited support** because of bufferization.
+
+## Extra
+
+`bubaxy` has an interactive console attached to the stdin. Try it by typing some python expression into console:
+
+```
+[ 2018-04-19 12:37:03,608 ][INFO]: Namespace(chunk_size=1024, cmd=None, log='INFO', net='example.com:80', patterns=None, port=31337)
+[ 2018-04-19 12:37:16,947 ][INFO]: <type=remote conn=(10.0.0.159, 63801) -> (93.184.216.34, 80)> was spawned
+2 * 2
+4
+import this
+The Zen of Python, by Tim Peters
+
+...
+```
