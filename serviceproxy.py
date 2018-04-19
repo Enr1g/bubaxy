@@ -14,7 +14,7 @@ class ServiceProxy:
     chunk_size = 0
     max_len = 0
     patterns = None
-    filename = None
+    patterns_filename = None
 
     def __init__(self, io_sock, service_type, target, loop, chunk_size=1024):
         if service_type == 'net':
